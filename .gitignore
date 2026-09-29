@@ -1,0 +1,10 @@
+node_modules/
+dist/
+static/assets/
+static/email/test-emails/
+.vendure/
+.env
+.env.local
+*.sqlite
+*.sqlite-journal
+src/gql/
