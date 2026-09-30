@@ -69,11 +69,12 @@ Run that twice. One value is `COOKIE_SECRET`, the other is `SUPERADMIN_PASSWORD`
 | `DEFAULT_CURRENCY` | `INR` |
 | `DEFAULT_LANGUAGE_CODE` | `en` |
 | `PRICES_INCLUDE_TAX` | `true` |
-| `APPLY_STORE_DEFAULTS` | `true` |
-| `RUN_MIGRATIONS` | `true` |
+| `APPLY_STORE_DEFAULTS` | `false` after the first successful boot. `true` only on a brand-new empty database. |
+| `RUN_MIGRATIONS` | `false`. Set `true` only for a deploy that adds a migration, then set it back. See below. |
 | `RUN_JOB_QUEUE_IN_SERVER` | `true` |
 | `RUN_TASKS_IN_WORKER_ONLY` | `false` |
 | `JOB_QUEUE_POLL_INTERVAL_MS` | `5000` |
+| `JOB_QUEUE_START_DELAY_MS` | `5000` |
 | `ALLOW_DUMMY_PAYMENTS` | `false` |
 
 Optional, when you have SMTP (Hostinger email or another provider):
@@ -102,11 +103,29 @@ Hostinger's database docs (updated August 2026) say PHP can use `localhost` beca
 
 You do not need to import a SQL file. The app creates the tables itself.
 
+## Why the port opens before Vendure is ready
+
+Passenger (the process manager behind Hostinger Node.js web apps) logs `App did not call listen() within 3 seconds` and restarts the process if `dist/index.js` does not bind `PORT` in time. A full Vendure boot takes longer than that. Several overlapping restarts were what pushed the account's process count up: Hostinger counts threads, and each Vendure process brings its own.
+
+Hostinger runs Node through LiteSpeed's `lsnode` wrapper, which monkey-patches `http.Server.prototype.listen`. The first `listen()` in the process is bound to Hostinger's socket. Any later `listen()` logs `http.Server.listen() was called more than once, ignore.` and returns without opening a port or invoking the callback. A second Vendure server on `127.0.0.1` therefore never accepts connections.
+
+`dist/index.js` calls `listen()` on `process.env.PORT` before it imports Vendure. That is the only `listen()` in the process. Until bootstrap finishes, every request, including `GET /health`, gets HTTP 503, the body `starting`, and `Retry-After: 5`. Vendure's Nest application is then created and initialized with `app.init()`, which registers GraphQL, the asset server, the dashboard, cookies, and CORS, and it does not call `listen()`. The already-open server passes each request to that Express handler. The body is not read before the hand-off, so admin multipart uploads stay intact. This process does not serve WebSocket upgrades; the dashboard does not need one.
+
+After the hand-off, `GET /health` is Vendure's own check and returns HTTP 200 with `{"status":"ok"}`. A 503 during the first several seconds of a deploy is expected. Passenger's listen check is satisfied as soon as the port opens. The ready line is `[startup] Vendure is ready`, and Vendure logs `Vendure is listening on the already-open port`. Use the `[startup] listening` line for the port Hostinger gave the process.
+
+The SQL job queue starts `JOB_QUEUE_START_DELAY_MS` milliseconds after that hand-off (default 5000), so the first requests are not competing with queue polling. The scheduler cannot be deferred the same way: Vendure registers its cron jobs inside Nest's bootstrap and does not offer a later `start()`. Those jobs do not run at startup; they wait for the next cron time. They keep running in this process unless you set `RUN_TASKS_IN_WORKER_ONLY=true` (which also means nothing runs them until a separate worker exists).
+
+This app does not set `UV_THREADPOOL_SIZE`. If the Hostinger environment sets it to `2`, Node uses `2`. Do not add a line that overwrites it.
+
+`dist/index-worker.js` is unchanged. It still bootstraps a worker with no HTTP port, for a future VPS. Do not use it as the Hostinger entry file.
+
 ## Migrations
 
 `synchronize` is off whenever `DB_TYPE` is `mysql` or `mariadb`, and it is off whenever `APP_ENV=production`.
 
-On startup, `dist/index.js` runs any pending migrations and then listens. That is the production path, because Business and Cloud plans run `npm install` and the build command during deploy, and they do not give you a shell in which to run `npm run migration:run`.
+Leave `RUN_MIGRATIONS=false` on the steady-state production app. The tables are already there, and skipping the migration check keeps each boot shorter. Set `RUN_MIGRATIONS=true` only for a deploy that adds a file under `src/migrations/`. The port is already open while the migration runs, and clients still receive `503 starting`. When `GET /health` returns 200, set `RUN_MIGRATIONS` back to `false` and redeploy (or restart) so the next boot does not run migrations again.
+
+Business and Cloud plans do not give you a shell for `npm run migration:run`. The startup flag is the production path.
 
 Locally, against a MySQL or MariaDB database:
 
@@ -120,11 +139,11 @@ To add a migration after a schema change:
 npm run migration:generate -- describe-the-change
 ```
 
-Review `src/migrations/`, commit it, and deploy. The next boot applies it.
+Review `src/migrations/`, commit it, and deploy with `RUN_MIGRATIONS=true` for that one deploy.
 
 MySQL and MariaDB cannot roll a failed DDL statement back inside a transaction. Export the database from phpMyAdmin before you deploy a new migration.
 
-The first boot also sets the default channel to INR and English if it is still the stock USD channel Vendure creates. Later edits in the dashboard are left alone.
+`APPLY_STORE_DEFAULTS=false` is the right production value once the default channel is INR. The first boot of an empty database can leave it `true`: that boot sets the default channel to INR and English if it is still the stock USD channel Vendure creates. Later edits in the dashboard are left alone either way. With the flag `false`, the app skips that check.
 
 Use `DB_TYPE=mariadb` on Hostinger. A boot against MariaDB 10.11 with that driver applies this migration and does not report a schema mismatch. `DB_TYPE=mysql` against the same MariaDB server still runs, but TypeORM then logs a false "schema does not match" warning because MariaDB stores `json` as `longtext`. Do not turn synchronize on to clear that warning. Switch the driver to `mariadb` instead.
 
@@ -143,7 +162,7 @@ Other paths on the same host:
 | `/admin-api` | Admin GraphQL API |
 | `/shop-api` | Shop GraphQL API (for a future storefront) |
 | `/assets/...` | Product images |
-| `/health` | Process health check (built into Vendure) |
+| `/health` | `503` body `starting` until Vendure is up, then HTTP 200 `{"status":"ok"}` |
 
 GraphiQL and the dev mailbox are not mounted when `APP_ENV=production`.
 
@@ -165,7 +184,7 @@ The Node process has to be allowed to create that directory. After the first boo
 
 Hostinger runs the entry file as a single Node process and stops it after a period with no requests. A second always-on worker is not available, and `npm` scripts cannot be started over SSH.
 
-This app uses Vendure's `DefaultJobQueuePlugin`, which stores jobs in MySQL (`job_record`). `dist/index.js` calls `JobQueueService.start()` in the same process, and scheduled tasks are allowed to run there (`runTasksInWorkerOnly` is false unless you set `RUN_TASKS_IN_WORKER_ONLY=true`). Nothing uses Redis. The search index is the built-in database index, not Elasticsearch.
+This app uses Vendure's `DefaultJobQueuePlugin`, which stores jobs in MySQL (`job_record`). A few seconds after Vendure is ready, `dist/index.js` calls `JobQueueService.start()` in the same process. Scheduled tasks are allowed to run there (`runTasksInWorkerOnly` is false unless you set `RUN_TASKS_IN_WORKER_ONLY=true`). Nothing uses Redis. The search index is the built-in database index, not Elasticsearch.
 
 Trade-off: Vendure's own guidance is to run a separate worker so a long job does not share the API process, and so jobs keep moving while the API is busy. On this plan that second process does not stay up. Jobs and scheduled tasks run only while this process is awake. They survive a sleep or a restart because they are rows in MySQL, and they resume on the next request. Polling is every 5 seconds instead of the default 200ms, so a quiet shop does not hammer the shared database. For a small catalog that is a reasonable compromise. It will feel slow if you later import thousands of products or send large bursts of email.
 
@@ -187,7 +206,7 @@ Vendure 3.7 has an experimental prebundled dashboard (`useExperimentalBundle`). 
 
 ## After the first deploy
 
-1. Open https://shop.vitamin2001.in/health and expect HTTP 200.
+1. Open https://shop.vitamin2001.in/health. The first seconds after a deploy return `503` and the body `starting`. When the boot finishes, expect HTTP 200 and `{"status":"ok"}`.
 2. Open https://shop.vitamin2001.in/dashboard and sign in.
 3. Settings → Channels: confirm the default channel is INR and English. Add India as a tax zone and your GST rates before taking orders.
 4. Payments: dummy payments are disabled in production. Checkout needs a real handler (Razorpay is the usual choice in India) before the shop can charge customers. That plugin is not included yet.

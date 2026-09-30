@@ -29,7 +29,7 @@ Local development defaults to SQLite (`DB_TYPE=sqlite`), which creates `vendure.
 npm run migration:run
 ```
 
-The server also runs pending migrations on startup unless `RUN_MIGRATIONS=false`. Schema synchronize is on for local SQLite only. It is off for MySQL, MariaDB, and any production boot.
+The public port opens immediately and is the only `listen()` call. Until Vendure has finished starting, requests get HTTP 503 with the body `starting` (including `/health`). The Nest app is initialized without a second `listen()`, and the open server then hands each request to it. Pending migrations run during that window unless `RUN_MIGRATIONS=false`. On Hostinger, leave migrations off except for a deploy that adds one. Schema synchronize is on for local SQLite only. It is off for MySQL, MariaDB, and any production boot.
 
 Generate a new migration after a schema change (custom fields, plugins) against the MySQL database:
 
@@ -59,7 +59,7 @@ npm run build
 npm start
 ```
 
-`npm start` listens on `PORT` (or 3000). The compiled dashboard is served at `/dashboard`.
+`npm start` binds `PORT` (or 3000) immediately, answers `503 starting` while Vendure boots, then hands requests to the initialized Nest app. The compiled dashboard is at `/dashboard`. Hostinger's process manager ignores any second `listen()`, so this process never calls it again.
 
 ## Adding a storefront later
 
