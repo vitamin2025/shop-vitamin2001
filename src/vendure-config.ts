@@ -113,7 +113,8 @@ function dbConnectionOptions(): DataSourceOptions {
         extra: {
             connectionLimit: Number(process.env.DB_POOL_SIZE || 5),
         },
-        // Never synchronize a production schema. Pending migrations run from src/index.ts.
+        // Never synchronize a production schema. Pending migrations run from
+        // src/start-vendure.ts, after the public port is already open.
         synchronize: false,
         logging,
         migrations: [path.join(__dirname, './migrations/*.+(js|ts)')],
