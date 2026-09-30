@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "skipLibCheck": true,
+    "paths": {
+      "@/gql": ["./src/gql/graphql.ts"],
+      "@/vdb/*": ["./node_modules/@vendure/dashboard/src/lib/*"]
+    }
+  },
+  "include": [
+    "src/plugins/**/dashboard/*",
+    "src/gql/**/*.ts",
+    "vite.config.mts"
+  ]
+}
