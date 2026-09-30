@@ -1,19 +1,20 @@
 import http from 'node:http';
 import dotenv from 'dotenv';
-import type { ServerResponse } from 'node:http';
-import type { Socket } from 'node:net';
-
-type VendureProxy = InstanceType<typeof import('http-proxy')>;
+import type { IncomingMessage, ServerResponse } from 'node:http';
 
 /**
  * Passenger on Hostinger kills the process unless `listen(PORT)` happens within
  * 3 seconds. Importing Vendure and opening the database takes longer than that,
  * so this file binds the public port before it loads anything else.
  *
- * Until `start-vendure` finishes, every path (including `/health`) answers
- * `503` with the body `starting`. After that, requests and WebSocket upgrades
- * are streamed to Vendure on 127.0.0.1. The body is not parsed here, so
- * multipart admin uploads, cookies, and CORS stay intact.
+ * LiteSpeed's lsnode wrapper patches `http.Server.prototype.listen`: only the
+ * first call in the process is bound to Hostinger's socket. A later call logs
+ * `http.Server.listen() was called more than once, ignore.` and returns without
+ * opening a port or running the callback. This server is therefore the only
+ * `listen()`. Vendure is initialized with `app.init()` and never listens.
+ * Until that finishes, every path (including `/health`) answers `503` with the
+ * body `starting`. After that, the same requests are passed to Nest's Express
+ * handler. The body is not read here, so multipart uploads stay intact.
  */
 dotenv.config();
 
@@ -25,10 +26,11 @@ if (!Number.isInteger(port) || port < 0 || port > 65535) {
     process.exit(1);
 }
 
-let vendureOrigin: string | null = null;
-let proxy: VendureProxy | null = null;
+type RequestHandler = (req: IncomingMessage, res: ServerResponse) => void;
 
-function sendStarting(req: http.IncomingMessage, res: ServerResponse): void {
+let vendureHandler: RequestHandler | null = null;
+
+function sendStarting(req: IncomingMessage, res: ServerResponse): void {
     req.resume();
     res.writeHead(503, {
         'content-type': 'text/plain; charset=utf-8',
@@ -39,19 +41,11 @@ function sendStarting(req: http.IncomingMessage, res: ServerResponse): void {
 }
 
 const server = http.createServer((req, res) => {
-    if (!vendureOrigin || !proxy) {
+    if (!vendureHandler) {
         sendStarting(req, res);
         return;
     }
-    proxy.web(req, res, { target: vendureOrigin });
-});
-
-server.on('upgrade', (req, socket, head) => {
-    if (!vendureOrigin || !proxy) {
-        socket.destroy();
-        return;
-    }
-    proxy.ws(req, socket, head, { target: vendureOrigin });
+    vendureHandler(req, res);
 });
 
 server.on('error', err => {
@@ -59,8 +53,8 @@ server.on('error', err => {
     process.exit(1);
 });
 
-// Nest closes its own internal server on SIGTERM. Close this public socket too,
-// or Passenger will wait until it SIGKILLs the process.
+// Nest closes the unused server it constructed internally. Close this public
+// socket too, or Passenger will wait until it SIGKILLs the process.
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     process.once(signal, () => {
         server.close();
@@ -79,35 +73,10 @@ server.listen(port, () => {
 
 async function boot(): Promise<void> {
     try {
-        const [{ startVendure }, httpProxy] = await Promise.all([
-            import('./start-vendure.js'),
-            import('http-proxy'),
-        ]);
-        proxy = httpProxy.default.createProxyServer({
-            // Keep Host and X-Forwarded-* from Hostinger. Adding another hop would
-            // make trustProxy read the wrong client address and protocol.
-            xfwd: false,
-            ws: true,
-        });
-        proxy.on('error', (err: Error, _req: unknown, res: unknown) => {
-            console.error(`[startup] proxy error: ${err.message}`);
-            if (isServerResponse(res)) {
-                if (!res.headersSent) {
-                    res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' });
-                    res.end('bad gateway');
-                }
-                return;
-            }
-            if (isSocket(res)) {
-                res.destroy();
-            }
-        });
-
-        const { app, internalPort } = await startVendure();
-        vendureOrigin = `http://127.0.0.1:${internalPort}`;
-        console.log(
-            `[startup] ready in ${Date.now() - bootStartedAt}ms; proxying to ${vendureOrigin}`,
-        );
+        const { startVendure } = await import('./start-vendure.js');
+        const { app, handler } = await startVendure();
+        vendureHandler = handler;
+        console.log(`[startup] Vendure is ready in ${Date.now() - bootStartedAt}ms`);
         scheduleJobQueue(app);
     } catch (err) {
         console.error(err);
@@ -145,12 +114,4 @@ function jobQueueDelayMs(): number {
         return 5000;
     }
     return value;
-}
-
-function isServerResponse(res: unknown): res is ServerResponse {
-    return typeof res === 'object' && res !== null && typeof (res as ServerResponse).writeHead === 'function';
-}
-
-function isSocket(res: unknown): res is Socket {
-    return typeof res === 'object' && res !== null && typeof (res as Socket).destroy === 'function';
 }
