@@ -46,11 +46,57 @@ That is `vendure migrate -g add-something`. Review the file in `src/migrations/`
 | `npm run dev` | API (with the job queue inside it) and the dashboard dev server |
 | `npm run build` | Compile the server and build the dashboard into `dist/` |
 | `npm start` | Run the compiled server: `node dist/index.js` |
+| `npm test` | End-to-end tests (a throwaway SQLite database, no setup needed) |
 | `npm run migration:run` | Apply pending migrations |
 | `npm run migration:generate -- <name>` | Write a new migration |
 | `npm run doctor` | Vendure project checks |
 
 `npm run start:worker` is not part of the Hostinger setup. See [DEPLOY-HOSTINGER.md](./DEPLOY-HOSTINGER.md).
+
+## Sellers
+
+The marketplace plugin (`src/plugins/marketplace/`) lets other businesses sell through this store. It is built on Vendure's [multi-vendor example](https://github.com/vendure-ecommerce/vendure/tree/master/packages/dev-server/example-plugins/multivendor-plugin).
+
+- **The marketplace** is the default channel. It lists every seller's products, and a customer can buy from several sellers in one checkout.
+- **Each seller** gets their own shop: a channel with its own login, stock location and shipping method. Sellers sign in at the same `/dashboard` and see only their own shop.
+- **The store's own products** belong to the "Vitamin 2001" seller shop, which the plugin creates on startup (once the default channel has a tax zone and a shipping zone). Staff manage it by switching to that channel in the dashboard.
+
+### Adding a seller
+
+A seller applies through the Shop API with the `applyAsSeller` mutation (shop name, name, email, password, and optionally phone, GSTIN and FSSAI licence number). That saves a Pending seller whose login has no access yet.
+
+You can also add a seller yourself under Settings → Sellers. Fill in at least the contact email.
+
+To approve or reject, open the seller under Settings → Sellers and change **Status**:
+
+| Status | What happens |
+| --- | --- |
+| Approved | Creates the seller's channel, a role limited to it, a stock location and a shipping method (₹0 to start), and gives the login that role. A seller you added yourself gets a login with a random password: set it under Settings → Administrators. |
+| Pending | The login stays but loses its access. |
+| Rejected | The login is deleted. |
+
+If approval fails, the reason is in the server log. The usual cause is a default channel without a tax zone and a shipping zone.
+
+### What a seller can do
+
+In their own shop: products, variants, prices, stock and images; their shipping methods and rates; their stock locations; their orders, including the buyer's delivery address, and marking them shipped or delivered. Every shipping method a seller creates applies only to their own items.
+
+They cannot see other sellers' products or orders, create promotions, change payment methods, change their commission or status, or create or delete customers. Promotions stay with the store because a seller's discount would also apply to other sellers' items in the marketplace.
+
+### Orders, commission and payouts
+
+When a marketplace order is paid, it is split into one order per seller. Each seller ships their part, and the marketplace order moves to Shipped or Delivered once every seller has.
+
+Customers pay the store. Each seller order records:
+
+- **Commission %**: the seller's own **Commission %** (Settings → Sellers), or `MARKETPLACE_COMMISSION_PERCENT` when that is blank.
+- **Commission**: that percentage of the order's items, including GST and after discounts, without shipping.
+- **Owed to seller**: the order total minus the commission.
+- **Seller payout**: Pending until you pay the seller and set it to Paid. Only staff with the Update Settings permission see this field, so sellers cannot mark themselves paid.
+
+### Seller storefronts
+
+A storefront that sends a seller's channel token (the `vendure-token` header; the token is on the channel under Settings → Channels) shows only that seller's products. Its orders are not split, and the commission is recorded the same way. Add each storefront's origin to `CORS_ORIGINS`.
 
 ## Production build
 

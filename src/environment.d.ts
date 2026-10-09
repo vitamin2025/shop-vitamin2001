@@ -38,6 +38,8 @@ declare global {
             RUN_JOB_QUEUE_IN_SERVER?: string;
             RUN_TASKS_IN_WORKER_ONLY?: string;
             JOB_QUEUE_POLL_INTERVAL_MS?: string;
+            MARKETPLACE_COMMISSION_PERCENT?: string;
+            MARKETPLACE_APPLICATIONS_OPEN?: string;
         }
     }
 }

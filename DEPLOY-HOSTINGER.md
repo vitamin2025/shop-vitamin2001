@@ -75,6 +75,8 @@ Run that twice. One value is `COOKIE_SECRET`, the other is `SUPERADMIN_PASSWORD`
 | `RUN_TASKS_IN_WORKER_ONLY` | `false` |
 | `JOB_QUEUE_POLL_INTERVAL_MS` | `5000` |
 | `ALLOW_DUMMY_PAYMENTS` | `false` |
+| `MARKETPLACE_COMMISSION_PERCENT` | `10`, or your default commission for sellers |
+| `MARKETPLACE_APPLICATIONS_OPEN` | `true`, or `false` to stop new seller applications |
 
 Optional, when you have SMTP (Hostinger email or another provider):
 
@@ -189,7 +191,7 @@ Vendure 3.7 has an experimental prebundled dashboard (`useExperimentalBundle`). 
 
 1. Open https://shop.vitamin2001.in/health and expect HTTP 200.
 2. Open https://shop.vitamin2001.in/dashboard and sign in.
-3. Settings → Channels: confirm the default channel is INR and English. Add India as a tax zone and your GST rates before taking orders.
+3. Settings → Channels: confirm the default channel is INR and English. Add India as a tax zone and your GST rates before taking orders. Once the default channel has a tax zone and a shipping zone, the server creates the "Vitamin 2001" seller shop for the store's own products. Sellers can be approved only after that. See "Sellers" in [README.md](./README.md).
 4. Payments: dummy payments are disabled in production. Checkout needs a real handler (Razorpay is the usual choice in India) before the shop can charge customers. That plugin is not included yet.
 5. Settings → Administrators: change the password if it was ever written down in a ticket, then update `SUPERADMIN_PASSWORD` so a future empty database would recreate the same user.
 

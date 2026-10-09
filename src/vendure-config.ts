@@ -15,6 +15,8 @@ import { DataSourceOptions } from 'typeorm';
 import 'dotenv/config';
 import path from 'path';
 
+import { MarketplacePlugin } from './plugins/marketplace/marketplace.plugin';
+
 const DEV_COOKIE_SECRET = 'dev-only-cookie-secret-not-for-production';
 
 // APP_ENV is the switch for this app. NODE_ENV is not: Vite sets NODE_ENV=production
@@ -188,6 +190,14 @@ function emailPlugin() {
     });
 }
 
+function commissionPercent(value: string | undefined): number {
+    const percent = Number(value ?? 10);
+    if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+        throw new Error(`MARKETPLACE_COMMISSION_PERCENT "${value}" must be a number from 0 to 100.`);
+    }
+    return percent;
+}
+
 const allowDummyPayments = !IS_PRODUCTION || process.env.ALLOW_DUMMY_PAYMENTS === 'true';
 
 export function parseCurrency(value: string | undefined): CurrencyCode {
@@ -270,6 +280,11 @@ export const config: VendureConfig = {
         }),
         DefaultSearchPlugin.init({ bufferUpdates: false, indexStockStatus: true }),
         emailPlugin(),
+        MarketplacePlugin.init({
+            defaultCommissionPercent: commissionPercent(process.env.MARKETPLACE_COMMISSION_PERCENT),
+            applicationsOpen: process.env.MARKETPLACE_APPLICATIONS_OPEN !== 'false',
+            houseShopName: 'Vitamin 2001',
+        }),
         DashboardPlugin.init({
             route: 'dashboard',
             // ts-node runs from src/; the compiled server runs from dist/ and serves dist/dashboard.

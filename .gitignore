@@ -8,3 +8,4 @@ static/email/test-emails/
 *.sqlite
 *.sqlite-journal
 src/gql/
+test/__data__/
