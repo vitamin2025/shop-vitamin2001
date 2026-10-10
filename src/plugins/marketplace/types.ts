@@ -34,6 +34,8 @@ export interface MarketplaceSeller {
     logo: Asset | null;
     banner: Asset | null;
     isHouseShop: boolean;
+    gstin: string | null;
+    fssaiLicenceNumber: string | null;
     channelCode: string;
     channelToken: string;
 }

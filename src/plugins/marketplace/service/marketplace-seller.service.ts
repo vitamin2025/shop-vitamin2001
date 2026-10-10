@@ -44,6 +44,8 @@ export class MarketplaceSellerService {
             logo: seller.customFields.logo,
             banner: seller.customFields.banner,
             isHouseShop: seller.customFields.isHouseShop,
+            gstin: seller.customFields.gstin ?? null,
+            fssaiLicenceNumber: seller.customFields.fssaiLicenceNumber ?? null,
             channelCode: seller.channels[0].code,
             channelToken: seller.channels[0].token,
         }));
