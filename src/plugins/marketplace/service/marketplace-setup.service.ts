@@ -4,6 +4,7 @@ import {
     ChannelEvent,
     ChannelService,
     EventBus,
+    ID,
     idsAreEqual,
     LanguageCode,
     Logger,
@@ -22,8 +23,10 @@ import {
 import { IsNull } from 'typeorm';
 
 import { sellerOrderOnlyChecker, sellerPayoutHandler } from '../config/seller-payout-handler';
+import { takeRemovedSeller } from '../config/seller-removal-subscriber';
 import { sellerShippingEligibilityChecker } from '../config/seller-shipping-checker';
 import { loggerCtx, MARKETPLACE_PLUGIN_OPTIONS, SELLER_PAYOUT_METHOD_CODE, SellerStatus } from '../constants';
+import { SellerShopSyncedEvent } from '../events';
 import { MarketplacePluginOptions } from '../types';
 
 import { SellerProvisioningService } from './seller-provisioning.service';
@@ -31,7 +34,7 @@ import { SuperadminContextService } from './superadmin-context.service';
 
 /**
  * Runs on server start: keeps the store's data in the shape the marketplace needs,
- * and reacts to sellers being approved or rejected in the dashboard.
+ * and reacts to sellers being approved, rejected or deleted in the dashboard.
  */
 @Injectable()
 export class MarketplaceSetupService implements OnApplicationBootstrap {
@@ -53,6 +56,18 @@ export class MarketplaceSetupService implements OnApplicationBootstrap {
         }
         this.eventBus.ofType(SellerEvent).subscribe(event => {
             if (event.type === 'deleted') {
+                // The deleted Seller has lost its id; the input is the id that was deleted.
+                const removed = takeRemovedSeller(event.input as ID);
+                if (removed) {
+                    this.sellerProvisioningService
+                        .closeShop(removed)
+                        .catch(err =>
+                            Logger.error(
+                                `Could not close the shop of "${removed.name}": ${String(err.message)}`,
+                                loggerCtx,
+                            ),
+                        );
+                }
                 return;
             }
             this.sellerProvisioningService
@@ -88,6 +103,7 @@ export class MarketplaceSetupService implements OnApplicationBootstrap {
                 loggerCtx,
             );
         }
+        await this.backfillSellerSlugs(ctx);
         await this.warnAboutProductsWithoutSeller(ctx);
     }
 
@@ -155,6 +171,24 @@ export class MarketplaceSetupService implements OnApplicationBootstrap {
             }
             await this.sellerProvisioningService.openShop(txCtx, houseShop, { withSellerRole: false });
         });
+    }
+
+    /**
+     * Shops opened before sellers had a slug get one from their channel code. Each is then
+     * announced like a provisioned seller, since listeners have not seen it with a slug yet.
+     */
+    private async backfillSellerSlugs(ctx: RequestContext) {
+        const sellers = await this.connection
+            .getRepository(ctx, Seller)
+            .find({ where: { deletedAt: IsNull(), customFields: { slug: IsNull() } }, order: { id: 'ASC' } });
+        for (const seller of sellers) {
+            const channel = await this.sellerProvisioningService.findSellerChannel(ctx, seller.id);
+            if (channel && channel.code !== DEFAULT_CHANNEL_CODE) {
+                await this.sellerProvisioningService.assignSlug(ctx, seller, channel.code);
+                Logger.info(`Seller "${seller.name}" now has the slug "${seller.customFields.slug}"`, loggerCtx);
+                await this.eventBus.publish(new SellerShopSyncedEvent(ctx, seller));
+            }
+        }
     }
 
     private async sharePaymentMethodWithSellers(ctx: RequestContext, paymentMethod: PaymentMethod) {

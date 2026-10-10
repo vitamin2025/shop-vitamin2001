@@ -18,6 +18,26 @@ export const shopApiExtensions = gql`
         status: String!
     }
 
+    "A seller with an open shop, as a storefront shows it."
+    type MarketplaceSeller {
+        id: ID!
+        slug: String!
+        name: String!
+        description: String
+        logo: Asset
+        banner: Asset
+        isHouseShop: Boolean!
+        channelCode: String!
+        "Send this as the vendure-token header to see only this seller's products."
+        channelToken: String!
+    }
+
+    extend type Query {
+        "Approved sellers that have an open shop, house shop included. Ignores the request's channel."
+        marketplaceSellers: [MarketplaceSeller!]!
+        marketplaceSeller(slug: String!): MarketplaceSeller
+    }
+
     extend type Mutation {
         """
         Apply to sell on the marketplace. The seller can sign in to the dashboard with this email
