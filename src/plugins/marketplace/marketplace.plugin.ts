@@ -6,17 +6,20 @@ import {
     VendurePlugin,
 } from '@vendure/core';
 
+import { MarketplaceSellerResolver } from './api/marketplace-seller.resolver';
 import { SellerApplicationResolver } from './api/seller-application.resolver';
 import { shopApiExtensions } from './api/shop-api-extensions';
 import { marketplaceOrderProcess } from './config/marketplace-order-process';
 import { MarketplaceOrderSellerStrategy } from './config/seller-order-strategy';
 import { sellerOrderOnlyChecker, sellerPayoutHandler } from './config/seller-payout-handler';
+import { SellerRemovalSubscriber } from './config/seller-removal-subscriber';
 import { sellerShippingEligibilityChecker } from './config/seller-shipping-checker';
 import { SellerShippingLineAssignmentStrategy } from './config/seller-shipping-line-strategy';
 import { SellerStockAllocationStrategy } from './config/seller-stock-allocation-strategy';
 import { MARKETPLACE_PLUGIN_OPTIONS } from './constants';
 import { orderCustomFields, sellerCustomFields } from './custom-fields';
 import { CommissionService } from './service/commission.service';
+import { MarketplaceSellerService } from './service/marketplace-seller.service';
 import { MarketplaceSetupService } from './service/marketplace-setup.service';
 import { SellerApplicationService } from './service/seller-application.service';
 import { SellerProvisioningService } from './service/seller-provisioning.service';
@@ -38,15 +41,26 @@ import { MarketplacePluginOptions } from './types';
         SellerProvisioningService,
         SellerApplicationService,
         MarketplaceSetupService,
+        MarketplaceSellerService,
         { provide: MARKETPLACE_PLUGIN_OPTIONS, useFactory: () => MarketplacePlugin.options },
     ],
     shopApiExtensions: {
         schema: shopApiExtensions,
-        resolvers: [SellerApplicationResolver],
+        resolvers: [SellerApplicationResolver, MarketplaceSellerResolver],
     },
     configuration: config => {
         config.customFields.Seller.push(...sellerCustomFields);
         config.customFields.Order.push(...orderCustomFields);
+
+        // Lets a seller be deleted while their shop Channel still exists. See SellerRemovalSubscriber.
+        const { subscribers = [] } = config.dbConnectionOptions;
+        config.dbConnectionOptions = {
+            ...config.dbConnectionOptions,
+            subscribers: [
+                ...(Array.isArray(subscribers) ? subscribers : Object.values(subscribers)),
+                SellerRemovalSubscriber,
+            ],
+        };
 
         config.paymentOptions.paymentMethodHandlers.push(sellerPayoutHandler);
         config.paymentOptions.paymentMethodEligibilityCheckers = [

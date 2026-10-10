@@ -6,6 +6,7 @@ import {
     Channel,
     ChannelService,
     defaultShippingCalculator,
+    EventBus,
     ID,
     idsAreEqual,
     InternalServerError,
@@ -14,6 +15,8 @@ import {
     manualFulfillmentHandler,
     PaymentMethod,
     Permission,
+    Product,
+    ProductService,
     RequestContext,
     Role,
     RoleService,
@@ -28,8 +31,17 @@ import {
 import { randomBytes } from 'crypto';
 import { IsNull, Not } from 'typeorm';
 
-import { loggerCtx, SELLER_PAYOUT_METHOD_CODE, SELLER_ROLE_SUFFIX, SellerStatus } from '../constants';
+import { RemovedSeller } from '../config/seller-removal-subscriber';
 import { sellerShippingEligibilityChecker } from '../config/seller-shipping-checker';
+import {
+    loggerCtx,
+    RESERVED_SELLER_SLUGS,
+    SELLER_PAYOUT_METHOD_CODE,
+    SELLER_ROLE_SUFFIX,
+    SellerStatus,
+} from '../constants';
+import { SellerShopClosedEvent, SellerShopSyncedEvent } from '../events';
+import { slugFromChannelCode } from '../seller-slug';
 
 import { SuperadminContextService } from './superadmin-context.service';
 
@@ -71,18 +83,20 @@ export const SELLER_PERMISSIONS: Permission[] = [
 export class SellerProvisioningService {
     constructor(
         private connection: TransactionalConnection,
+        private eventBus: EventBus,
         private channelService: ChannelService,
         private roleService: RoleService,
         private administratorService: AdministratorService,
         private shippingMethodService: ShippingMethodService,
         private stockLocationService: StockLocationService,
+        private productService: ProductService,
         private superadminContextService: SuperadminContextService,
     ) {}
 
     /** Brings a seller's shop and login in line with the seller's Status. */
     async syncSeller(sellerId: ID): Promise<void> {
         const superadminCtx = await this.superadminContextService.create();
-        await this.connection.withTransaction(superadminCtx, async ctx => {
+        const synced = await this.connection.withTransaction(superadminCtx, async ctx => {
             const seller = await this.connection
                 .getRepository(ctx, Seller)
                 .findOne({ where: { id: sellerId, deletedAt: IsNull() } });
@@ -102,7 +116,44 @@ export class SellerProvisioningService {
                 default:
                     await this.suspendLogin(ctx, seller);
             }
+            return seller;
         });
+        if (synced) {
+            await this.eventBus.publish(new SellerShopSyncedEvent(superadminCtx, synced));
+        }
+    }
+
+    /**
+     * Runs after a seller was deleted. SellerRemovalSubscriber has already detached their Channels;
+     * this deletes their login and disables their products, so nothing of theirs stays on sale.
+     */
+    async closeShop(removed: RemovedSeller): Promise<void> {
+        const superadminCtx = await this.superadminContextService.create();
+        await this.connection.withTransaction(superadminCtx, async ctx => {
+            if (removed.administratorId) {
+                await this.deleteAdministrator(ctx, removed.administratorId);
+            }
+            if (removed.channelIds.length === 0) {
+                return;
+            }
+            const products = await this.connection
+                .getRepository(ctx, Product)
+                .createQueryBuilder('product')
+                .innerJoin('product.channels', 'channel', 'channel.id IN (:...channelIds)', {
+                    channelIds: removed.channelIds,
+                })
+                .where('product.deletedAt IS NULL')
+                .andWhere('product.enabled = :enabled', { enabled: true })
+                .getMany();
+            // Through ProductService, so the search index drops them too.
+            for (const product of products) {
+                await this.productService.update(ctx, { id: product.id, enabled: false });
+            }
+        });
+        Logger.info(`Closed the shop of deleted seller "${removed.name}"`, loggerCtx);
+        await this.eventBus.publish(
+            new SellerShopClosedEvent(superadminCtx, removed.sellerId, removed.slug, removed.name),
+        );
     }
 
     findSellerChannel(ctx: RequestContext, sellerId: ID): Promise<Channel | null> {
@@ -143,6 +194,9 @@ export class SellerProvisioningService {
         });
         if (isGraphQlErrorResult(channel)) {
             throw new InternalServerError(channel.message);
+        }
+        if (!seller.customFields.slug) {
+            await this.assignSlug(ctx, seller, code);
         }
         // The superadmin's cached permissions predate the new Channel, so continue in a fresh copy.
         const shopCtx = ctx.copy();
@@ -259,11 +313,40 @@ export class SellerProvisioningService {
 
     /** Rejected: the login is deleted. */
     private async removeLogin(ctx: RequestContext, seller: Seller): Promise<void> {
-        const administrator = await this.findSellerAdministrator(ctx, seller);
-        if (administrator) {
-            await this.administratorService.softDelete(ctx, administrator.id);
+        const { administratorId } = seller.customFields;
+        if (administratorId) {
+            await this.deleteAdministrator(ctx, administratorId);
             await this.linkAdministrator(ctx, seller, null);
         }
+    }
+
+    private async deleteAdministrator(ctx: RequestContext, administratorId: ID): Promise<void> {
+        const exists = await this.connection
+            .getRepository(ctx, Administrator)
+            .exists({ where: { id: administratorId, deletedAt: IsNull() } });
+        if (exists) {
+            await this.administratorService.softDelete(ctx, administratorId);
+        }
+    }
+
+    /**
+     * Gives a seller without a slug one made from their channel code, with -2, -3… added when
+     * another seller has it already.
+     */
+    async assignSlug(ctx: RequestContext, seller: Seller, channelCode: string): Promise<void> {
+        const root = slugFromChannelCode(channelCode);
+        let slug = root;
+        for (let i = 2; RESERVED_SELLER_SLUGS.includes(slug) || (await this.slugTaken(ctx, slug)); i++) {
+            const suffix = `-${i}`;
+            slug = `${root.slice(0, 63 - suffix.length).replace(/-+$/, '')}${suffix}`;
+        }
+        await this.connection.getRepository(ctx, Seller).update(seller.id, { customFields: { slug } });
+        seller.customFields.slug = slug;
+    }
+
+    private slugTaken(ctx: RequestContext, slug: string): Promise<boolean> {
+        // Deleted sellers keep their slug, and the unique index counts them.
+        return this.connection.getRepository(ctx, Seller).exists({ where: { customFields: { slug } } });
     }
 
     async linkAdministrator(ctx: RequestContext, seller: Seller, administratorId: ID | null): Promise<void> {

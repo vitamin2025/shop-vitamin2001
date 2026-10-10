@@ -1,6 +1,7 @@
-import { CustomFieldConfig, LanguageCode, Permission } from '@vendure/core';
+import { Asset, CustomFieldConfig, LanguageCode, Permission } from '@vendure/core';
 
 import { PayoutStatus, SellerStatus } from './constants';
+import { sellerSlugError } from './seller-slug';
 
 const en = (value: string) => [{ languageCode: LanguageCode.en, value }];
 
@@ -46,6 +47,29 @@ export const sellerCustomFields: CustomFieldConfig[] = [
     { name: 'contactPhone', type: 'string', nullable: true, public: false, label: en('Contact phone') },
     { name: 'gstin', type: 'string', nullable: true, public: false, label: en('GSTIN') },
     { name: 'fssaiLicenceNumber', type: 'string', nullable: true, public: false, label: en('FSSAI licence number') },
+    {
+        // Storefronts find a seller by this (marketplaceSeller(slug)), so it is unique and public.
+        name: 'slug',
+        type: 'string',
+        nullable: true,
+        unique: true,
+        public: true,
+        label: en('Slug'),
+        description: en(
+            "The seller's address on the storefront: lowercase letters, digits and hyphens. Set from the channel code when the shop opens.",
+        ),
+        validate: (value: string | null) => sellerSlugError(value),
+    },
+    {
+        name: 'description',
+        type: 'text',
+        nullable: true,
+        public: true,
+        label: en('Description'),
+        description: en("Shown on the seller's storefront."),
+    },
+    { name: 'logo', type: 'relation', entity: Asset, nullable: true, public: true, label: en('Logo') },
+    { name: 'banner', type: 'relation', entity: Asset, nullable: true, public: true, label: en('Banner') },
     {
         // The Administrator who signs in for this seller. Set by the plugin, never through the API.
         name: 'administratorId',

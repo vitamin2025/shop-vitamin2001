@@ -1,3 +1,5 @@
+import { Asset, ID } from '@vendure/core';
+
 export interface MarketplacePluginOptions {
     /**
      * Commission, as a percentage of a seller order's items (including tax, excluding shipping),
@@ -24,6 +26,18 @@ export interface SellerApplicationInput {
     fssaiLicenceNumber?: string | null;
 }
 
+export interface MarketplaceSeller {
+    id: ID;
+    slug: string;
+    name: string;
+    description: string | null;
+    logo: Asset | null;
+    banner: Asset | null;
+    isHouseShop: boolean;
+    channelCode: string;
+    channelToken: string;
+}
+
 declare module '@vendure/core/dist/entity/custom-entity-fields' {
     interface CustomSellerFields {
         status: string;
@@ -34,6 +48,10 @@ declare module '@vendure/core/dist/entity/custom-entity-fields' {
         contactPhone: string | null;
         gstin: string | null;
         fssaiLicenceNumber: string | null;
+        slug: string | null;
+        description: string | null;
+        logo: Asset | null;
+        banner: Asset | null;
         administratorId: string | null;
         isHouseShop: boolean;
     }
