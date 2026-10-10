@@ -40,6 +40,8 @@ declare global {
             JOB_QUEUE_POLL_INTERVAL_MS?: string;
             MARKETPLACE_COMMISSION_PERCENT?: string;
             MARKETPLACE_APPLICATIONS_OPEN?: string;
+            SHOP_BRIDGE_SECRET?: string;
+            BE_EVENTS_URL?: string;
         }
     }
 }

@@ -15,6 +15,8 @@ import { DataSourceOptions } from 'typeorm';
 import 'dotenv/config';
 import path from 'path';
 
+import { BackendBridgePlugin } from './plugins/be-bridge/be-bridge.plugin';
+import { BE_EVENTS_QUEUE, beEventRetryDelayMs } from './plugins/be-bridge/constants';
 import { MarketplacePlugin } from './plugins/marketplace/marketplace.plugin';
 
 const DEV_COOKIE_SECRET = 'dev-only-cookie-secret-not-for-production';
@@ -201,6 +203,13 @@ function commissionPercent(value: string | undefined): number {
 
 const allowDummyPayments = !IS_PRODUCTION || process.env.ALLOW_DUMMY_PAYMENTS === 'true';
 
+function shopBridgeSecret(value: string | undefined): string | undefined {
+    if (value && value.length < 32) {
+        throw new Error('SHOP_BRIDGE_SECRET must be at least 32 characters, and the same value as on the BE.');
+    }
+    return value || undefined;
+}
+
 export function parseCurrency(value: string | undefined): CurrencyCode {
     const code = (value || 'INR').toUpperCase();
     if (!Object.values(CurrencyCode).includes(code as CurrencyCode)) {
@@ -278,6 +287,9 @@ export const config: VendureConfig = {
             concurrency: 1,
             // Default polling is 200ms per queue, which is noisy on a shared MySQL server.
             pollInterval: Number(process.env.JOB_QUEUE_POLL_INTERVAL_MS || 5000),
+            // Events for the BE wait longer after each failure. Other jobs keep the default one second.
+            backoffStrategy: (queueName, attemptsMade) =>
+                queueName === BE_EVENTS_QUEUE ? beEventRetryDelayMs(attemptsMade) : 1000,
         }),
         DefaultSearchPlugin.init({ bufferUpdates: false, indexStockStatus: true }),
         emailPlugin(),
@@ -285,6 +297,10 @@ export const config: VendureConfig = {
             defaultCommissionPercent: commissionPercent(process.env.MARKETPLACE_COMMISSION_PERCENT),
             applicationsOpen: process.env.MARKETPLACE_APPLICATIONS_OPEN !== 'false',
             houseShopName: 'Vitamin 2001',
+        }),
+        BackendBridgePlugin.init({
+            secret: shopBridgeSecret(process.env.SHOP_BRIDGE_SECRET),
+            eventsUrl: process.env.BE_EVENTS_URL || undefined,
         }),
         DashboardPlugin.init({
             route: 'dashboard',
