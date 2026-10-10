@@ -31,6 +31,8 @@ export const shopApiExtensions = gql`
         gstin: String
         "Printed on the seller's invoices when given."
         fssaiLicenceNumber: String
+        "Printed on the seller's invoices when given."
+        businessAddress: String
         channelCode: String!
         "Send this as the vendure-token header to see only this seller's products."
         channelToken: String!

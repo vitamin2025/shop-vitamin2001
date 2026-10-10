@@ -46,6 +46,7 @@ export class MarketplaceSellerService {
             isHouseShop: seller.customFields.isHouseShop,
             gstin: seller.customFields.gstin ?? null,
             fssaiLicenceNumber: seller.customFields.fssaiLicenceNumber ?? null,
+            businessAddress: seller.customFields.businessAddress ?? null,
             channelCode: seller.channels[0].code,
             channelToken: seller.channels[0].token,
         }));

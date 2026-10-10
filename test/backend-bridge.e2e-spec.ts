@@ -169,6 +169,7 @@ describe('Storefront backend bridge', () => {
                 isHouseShop: false,
                 gstin: '27ABCDE1234F1Z5',
                 fssaiLicenceNumber: null,
+                businessAddress: null,
                 channelCode: 'alpha-nutrition',
                 channelToken: alpha.channelToken,
             });
@@ -179,7 +180,12 @@ describe('Storefront backend bridge', () => {
             await adminClient.query(UPDATE_SELLER, {
                 input: {
                     id: alpha.id,
-                    customFields: { description: 'Vitamins from Pune', logoId: logo.id, bannerId: logo.id },
+                    customFields: {
+                        description: 'Vitamins from Pune',
+                        logoId: logo.id,
+                        bannerId: logo.id,
+                        businessAddress: '12 FC Road, Pune, Maharashtra 411004',
+                    },
                 },
             });
             shopClient.setChannelToken(alpha.channelToken);
@@ -190,6 +196,7 @@ describe('Storefront backend bridge', () => {
                 description: 'Vitamins from Pune',
                 logo: { id: logo.id, preview: logo.preview },
                 banner: { id: logo.id },
+                businessAddress: '12 FC Road, Pune, Maharashtra 411004',
             });
 
             const { marketplaceSeller: unknown } = await shopClient.query(MARKETPLACE_SELLER, { slug: 'nobody' });
@@ -587,6 +594,7 @@ const MARKETPLACE_SELLER_FIELDS = `
     isHouseShop
     gstin
     fssaiLicenceNumber
+    businessAddress
     channelCode
     channelToken
 `;

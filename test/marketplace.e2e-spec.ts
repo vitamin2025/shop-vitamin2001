@@ -94,6 +94,7 @@ describe('Seller marketplace', () => {
             contactPhone: '+91 98765 43210',
             gstin: null,
             fssaiLicenceNumber: null,
+            businessAddress: null,
         });
     });
 
@@ -148,10 +149,16 @@ describe('Seller marketplace', () => {
                     contactEmail: sellerB.email,
                     commissionPercent: 15,
                     gstin: '27ABCDE1234F1Z5',
+                    businessAddress: '4 Linking Road, Mumbai, Maharashtra 400050',
                 },
             },
         });
         sellerBId = createSeller.id;
+        const { seller } = await adminClient.query(GET_SELLER, { id: sellerBId });
+        expect(seller.customFields).toMatchObject({
+            gstin: '27ABCDE1234F1Z5',
+            businessAddress: '4 Linking Road, Mumbai, Maharashtra 400050',
+        });
         await adminClient.query(UPDATE_SELLER, { input: { id: sellerBId, customFields: { status: 'approved' } } });
         const channel = await waitForSellerChannel(adminClient, sellerB.shopName);
         sellerB.channelToken = channel.token;
@@ -517,6 +524,7 @@ const GET_SELLER = gql`
                 contactPhone
                 gstin
                 fssaiLicenceNumber
+                businessAddress
             }
         }
     }

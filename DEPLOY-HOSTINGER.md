@@ -145,7 +145,7 @@ npm run migration:generate -- describe-the-change
 
 Review `src/migrations/`, commit it, and deploy with `RUN_MIGRATIONS=true` for that one deploy.
 
-The storefront bridge release adds `src/migrations/1791632305153-storefront-bridge.ts` (the seller slug, description, logo and banner). Deploy it once with `RUN_MIGRATIONS=true`, then set it back to `false`. On that boot, sellers that already have a shop get a slug from their channel code.
+The storefront bridge release adds `src/migrations/1791632305153-storefront-bridge.ts` (the seller slug, description, logo, banner and business address). Deploy it once with `RUN_MIGRATIONS=true`, then set it back to `false`. On that boot, sellers that already have a shop get a slug from their channel code.
 
 MySQL and MariaDB cannot roll a failed DDL statement back inside a transaction. Export the database from phpMyAdmin before you deploy a new migration.
 
