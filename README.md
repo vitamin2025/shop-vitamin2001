@@ -77,6 +77,18 @@ To approve or reject, open the seller under Settings → Sellers and change **St
 
 If approval fails, the reason is in the server log. The usual cause is a default channel without a tax zone and a shipping zone.
 
+### Storefront details
+
+Each seller also has a **Slug**, a **Description**, a **Logo** and a **Banner** (Settings → Sellers). Staff edit them; sellers cannot.
+
+The slug names the seller's storefront and may become its subdomain, so it is 1 to 63 lowercase letters, digits and hyphens, starting and ending with a letter or digit. `www`, `api`, `shop`, `admin`, `dashboard`, `mail`, `app`, `static`, `assets`, `cdn`, `auth`, `vitamin2001` and `marketplace` are reserved. A shop that opens without a slug gets its channel code (`-2`, `-3`… when another seller has it), so the "Vitamin 2001" shop is `vitamin-2001`. Sellers that had a shop before slugs existed get theirs on the next start.
+
+The Shop API's `marketplaceSellers` and `marketplaceSeller(slug)` return the approved sellers with an open shop, with these details and each shop's channel token, whichever channel the request is for.
+
+### Deleting a seller
+
+Delete the seller under Settings → Sellers. Their login is deleted and every product in their shop is disabled, so nothing of theirs stays on sale. Their channel, products and orders are kept, without a seller, so past orders stay intact. The "Vitamin 2001" shop cannot be deleted. To stop a seller for a while, set **Status** to Pending instead.
+
 ### What a seller can do
 
 In their own shop: products, variants, prices, stock and images; their shipping methods and rates; their stock locations; their orders, including the buyer's delivery address, and marking them shipped or delivered. Every shipping method a seller creates applies only to their own items.
@@ -96,7 +108,15 @@ Customers pay the store. Each seller order records:
 
 ### Seller storefronts
 
-A storefront that sends a seller's channel token (the `vendure-token` header; the token is on the channel under Settings → Channels) shows only that seller's products. Its orders are not split, and the commission is recorded the same way. Add each storefront's origin to `CORS_ORIGINS`.
+A storefront that sends a seller's channel token (the `vendure-token` header; the token is on the channel under Settings → Channels, and in `marketplaceSellers`) shows only that seller's products. The BE sends it for a seller's own storefront. Its orders are not split, and the commission is recorded the same way.
+
+## Storefront backend
+
+Storefronts do not call this API themselves. They call the vitamin2001.in backend (the BE), which calls the Shop API from its own server. `src/plugins/be-bridge/` is this end of that link. Both apps share `SHOP_BRIDGE_SECRET` (the same value, at least 32 characters).
+
+- **Sign-in.** The BE signs a customer in with `authenticate(input: { vitamin2001: { token } })`, a token signed with the shared secret that lasts a minute. The first sign-in creates the customer. Later ones, on the marketplace or a seller's channel, reuse it and take the name and phone number from the BE. A guest basket moves into the customer's order.
+- **Payment.** The `payu` payment method is created on startup and shared with every seller shop. It settles an order only with a payment confirmation the BE signed for that order's code and total. Anything else is declined with "Payment confirmation is invalid". Refunds are not sent to PayU: refund in the PayU dashboard, then record the refund on the order.
+- **Events.** The server POSTs signed events to `BE_EVENTS_URL`: `seller.updated`, `seller.deleted`, `order.shipped` and `order.delivered`. They go through the job queue and are retried 5 times (after 10 s, 20 s, 40 s, 80 s and 160 s) when the BE does not answer 2xx. Without `SHOP_BRIDGE_SECRET` or `BE_EVENTS_URL` no events are sent, and the log says so at startup.
 
 ## Production build
 
@@ -109,4 +129,4 @@ npm start
 
 ## Adding a storefront later
 
-Leave this app as the commerce API. A Next.js storefront can be a second project (the [official Vendure Next.js starter](https://github.com/vendurehq/nextjs-starter-vendure) is the one the email links in this config already match). Point it at `https://shop.vitamin2001.in/shop-api` and add its origin to `CORS_ORIGINS`. Host it as its own site, not inside this process. Deployment steps for this API are in [DEPLOY-HOSTINGER.md](./DEPLOY-HOSTINGER.md).
+Leave this app as the commerce API. Storefronts are separate sites that go through the BE (see "Storefront backend"); host them on their own, not inside this process. A storefront that calls `https://shop.vitamin2001.in/shop-api` from the browser needs its origin in `CORS_ORIGINS`. Deployment steps for this API are in [DEPLOY-HOSTINGER.md](./DEPLOY-HOSTINGER.md).

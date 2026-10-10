@@ -6,7 +6,7 @@ Recommended hostname: **`shop.vitamin2001.in`**.
 
 Keep the API on that same host (`/admin-api`, `/shop-api`, `/assets`, `/dashboard`). A second app such as `shop-api.vitamin2001.in` would be another always-on Node process and another web-app slot, talking to the same database. Hostinger Business hosting allows a small number of web apps (5 on the current Business plan). One subdomain is the right fit.
 
-A future storefront (for example the [Vendure Next.js starter](https://github.com/vendurehq/nextjs-starter-vendure)) should be a separate site on `vitamin2001.in` or `www.vitamin2001.in`, calling `https://shop.vitamin2001.in/shop-api`. Add that origin to `CORS_ORIGINS`.
+Storefronts are separate sites on `vitamin2001.in` and its subdomains. They call the vitamin2001.in backend (the BE), and the BE calls `https://shop.vitamin2001.in/shop-api` from its server. See "Storefront backend" in [README.md](./README.md).
 
 ## Plan check before you start
 
@@ -45,7 +45,7 @@ Generate two secrets locally before you paste them in:
 node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 ```
 
-Run that twice. One value is `COOKIE_SECRET`, the other is `SUPERADMIN_PASSWORD`.
+Run that twice. One value is `COOKIE_SECRET`, the other is `SUPERADMIN_PASSWORD`. `SHOP_BRIDGE_SECRET` is a third value made the same way, or the one the BE already has: both apps must use the same one.
 
 | Name | Value |
 | --- | --- |
@@ -78,6 +78,8 @@ Run that twice. One value is `COOKIE_SECRET`, the other is `SUPERADMIN_PASSWORD`
 | `ALLOW_DUMMY_PAYMENTS` | `false` |
 | `MARKETPLACE_COMMISSION_PERCENT` | `10`, or your default commission for sellers |
 | `MARKETPLACE_APPLICATIONS_OPEN` | `true`, or `false` to stop new seller applications |
+| `SHOP_BRIDGE_SECRET` | the secret shared with the BE, at least 32 characters. Without it the BE cannot sign customers in or confirm PayU payments. |
+| `BE_EVENTS_URL` | `https://api.vitamin2001.in/api/v1/shop/events`. Without it (or the secret) no seller or shipping events reach the BE. |
 
 Optional, when you have SMTP (Hostinger email or another provider):
 
@@ -143,6 +145,8 @@ npm run migration:generate -- describe-the-change
 
 Review `src/migrations/`, commit it, and deploy with `RUN_MIGRATIONS=true` for that one deploy.
 
+The storefront bridge release adds `src/migrations/1791632305153-storefront-bridge.ts` (the seller slug, description, logo and banner). Deploy it once with `RUN_MIGRATIONS=true`, then set it back to `false`. On that boot, sellers that already have a shop get a slug from their channel code.
+
 MySQL and MariaDB cannot roll a failed DDL statement back inside a transaction. Export the database from phpMyAdmin before you deploy a new migration.
 
 `APPLY_STORE_DEFAULTS=false` is the right production value once the default channel is INR. The first boot of an empty database can leave it `true`: that boot sets the default channel to INR and English if it is still the stock USD channel Vendure creates. Later edits in the dashboard are left alone either way. With the flag `false`, the app skips that check.
@@ -162,7 +166,7 @@ Other paths on the same host:
 | Path | Purpose |
 | --- | --- |
 | `/admin-api` | Admin GraphQL API |
-| `/shop-api` | Shop GraphQL API (for a future storefront) |
+| `/shop-api` | Shop GraphQL API (called by the BE) |
 | `/assets/...` | Product images |
 | `/health` | `503` body `starting` until Vendure is up, then HTTP 200 `{"status":"ok"}` |
 
@@ -211,7 +215,7 @@ Vendure 3.7 has an experimental prebundled dashboard (`useExperimentalBundle`). 
 1. Open https://shop.vitamin2001.in/health. The first seconds after a deploy return `503` and the body `starting`. When the boot finishes, expect HTTP 200 and `{"status":"ok"}`.
 2. Open https://shop.vitamin2001.in/dashboard and sign in.
 3. Settings → Channels: confirm the default channel is INR and English. Add India as a tax zone and your GST rates before taking orders. Once the default channel has a tax zone and a shipping zone, the server creates the "Vitamin 2001" seller shop for the store's own products. Sellers can be approved only after that. See "Sellers" in [README.md](./README.md).
-4. Payments: dummy payments are disabled in production. Checkout needs a real handler (Razorpay is the usual choice in India) before the shop can charge customers. That plugin is not included yet.
+4. Payments: dummy payments are disabled in production. Customers pay with PayU through the BE, which confirms each payment to the `payu` payment method (created on startup). Set `SHOP_BRIDGE_SECRET` first, or every PayU payment is declined.
 5. Settings → Administrators: change the password if it was ever written down in a ticket, then update `SUPERADMIN_PASSWORD` so a future empty database would recreate the same user.
 
 ## What will not work on this plan
