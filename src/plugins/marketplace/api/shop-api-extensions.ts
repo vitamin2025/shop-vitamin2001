@@ -27,6 +27,10 @@ export const shopApiExtensions = gql`
         logo: Asset
         banner: Asset
         isHouseShop: Boolean!
+        "Printed on the seller's invoices when given."
+        gstin: String
+        "Printed on the seller's invoices when given."
+        fssaiLicenceNumber: String
         channelCode: String!
         "Send this as the vendure-token header to see only this seller's products."
         channelToken: String!

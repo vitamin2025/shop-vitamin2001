@@ -203,9 +203,11 @@ function commissionPercent(value: string | undefined): number {
 
 const allowDummyPayments = !IS_PRODUCTION || process.env.ALLOW_DUMMY_PAYMENTS === 'true';
 
+/** A short secret is ignored (as on the BE) rather than stopping the shop: the bridge just stays off. */
 function shopBridgeSecret(value: string | undefined): string | undefined {
     if (value && value.length < 32) {
-        throw new Error('SHOP_BRIDGE_SECRET must be at least 32 characters, and the same value as on the BE.');
+        console.warn('SHOP_BRIDGE_SECRET is shorter than 32 characters, so the BE bridge is off.');
+        return undefined;
     }
     return value || undefined;
 }

@@ -122,6 +122,7 @@ describe('Storefront backend bridge', () => {
                     emailAddress: alpha.email,
                     password: PASSWORD,
                     phoneNumber: '+91 98765 43210',
+                    gstin: '27abcde1234f1z5',
                 },
             });
             alpha.id = applyAsSeller.id;
@@ -166,6 +167,8 @@ describe('Storefront backend bridge', () => {
                 logo: null,
                 banner: null,
                 isHouseShop: false,
+                gstin: '27ABCDE1234F1Z5',
+                fssaiLicenceNumber: null,
                 channelCode: 'alpha-nutrition',
                 channelToken: alpha.channelToken,
             });
@@ -582,6 +585,8 @@ const MARKETPLACE_SELLER_FIELDS = `
         preview
     }
     isHouseShop
+    gstin
+    fssaiLicenceNumber
     channelCode
     channelToken
 `;
