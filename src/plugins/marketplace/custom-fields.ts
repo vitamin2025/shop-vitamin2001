@@ -48,6 +48,14 @@ export const sellerCustomFields: CustomFieldConfig[] = [
     { name: 'gstin', type: 'string', nullable: true, public: false, label: en('GSTIN') },
     { name: 'fssaiLicenceNumber', type: 'string', nullable: true, public: false, label: en('FSSAI licence number') },
     {
+        name: 'businessAddress',
+        type: 'text',
+        nullable: true,
+        public: false,
+        label: en('Business address'),
+        description: en("Printed on this seller's invoices. Include the PIN code and state."),
+    },
+    {
         // Storefronts find a seller by this (marketplaceSeller(slug)), so it is unique and public.
         name: 'slug',
         type: 'string',

@@ -85,6 +85,8 @@ The slug names the seller's storefront and may become its subdomain, so it is 1 
 
 The Shop API's `marketplaceSellers` and `marketplaceSeller(slug)` return the approved sellers with an open shop, with these details and each shop's channel token, whichever channel the request is for.
 
+They also return each seller's GSTIN, FSSAI licence number and **Business address** (Settings → Sellers), or null when one is not given. The BE prints them on that seller's invoices.
+
 ### Deleting a seller
 
 Delete the seller under Settings → Sellers. Their login is deleted and every product in their shop is disabled, so nothing of theirs stays on sale. Their channel, products and orders are kept, without a seller, so past orders stay intact. The "Vitamin 2001" shop cannot be deleted. To stop a seller for a while, set **Status** to Pending instead.

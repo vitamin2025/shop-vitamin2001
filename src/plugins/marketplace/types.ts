@@ -36,6 +36,7 @@ export interface MarketplaceSeller {
     isHouseShop: boolean;
     gstin: string | null;
     fssaiLicenceNumber: string | null;
+    businessAddress: string | null;
     channelCode: string;
     channelToken: string;
 }
@@ -50,6 +51,7 @@ declare module '@vendure/core/dist/entity/custom-entity-fields' {
         contactPhone: string | null;
         gstin: string | null;
         fssaiLicenceNumber: string | null;
+        businessAddress: string | null;
         slug: string | null;
         description: string | null;
         logo: Asset | null;
