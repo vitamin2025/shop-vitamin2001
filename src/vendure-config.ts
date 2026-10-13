@@ -16,6 +16,7 @@ import 'dotenv/config';
 import path from 'path';
 
 import { BackendBridgePlugin } from './plugins/be-bridge/be-bridge.plugin';
+import { VitaminBrandingPlugin } from './plugins/branding/branding.plugin';
 import { BE_EVENTS_QUEUE, beEventRetryDelayMs } from './plugins/be-bridge/constants';
 import { MarketplacePlugin } from './plugins/marketplace/marketplace.plugin';
 
@@ -304,6 +305,7 @@ export const config: VendureConfig = {
             secret: shopBridgeSecret(process.env.SHOP_BRIDGE_SECRET),
             eventsUrl: process.env.BE_EVENTS_URL || undefined,
         }),
+        VitaminBrandingPlugin,
         DashboardPlugin.init({
             route: 'dashboard',
             // ts-node runs from src/; the compiled server runs from dist/ and serves dist/dashboard.

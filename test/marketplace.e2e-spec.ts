@@ -371,6 +371,189 @@ describe('Seller marketplace', () => {
         shopClient.setChannelToken(E2E_DEFAULT_CHANNEL_TOKEN);
     });
 
+    it('lets a seller add the accounts they are paid to, with the details each method needs', async () => {
+        await asSeller(adminClient, sellerA);
+        const { payoutMethodTypes } = await adminClient.query(PAYOUT_METHOD_TYPES);
+        expect(payoutMethodTypes.map((t: any) => t.name)).toEqual(['UPI', 'NEFT', 'IMPS', 'Other', 'Custom']);
+        const upi = payoutMethodTypes.find((t: any) => t.code === 'upi');
+        const neft = payoutMethodTypes.find((t: any) => t.code === 'neft');
+
+        await expect(
+            adminClient.query(CREATE_MY_PAYOUT_METHOD, {
+                input: { typeId: upi.id, details: [{ key: 'upiId', value: 'alpha@okhdfc' }] },
+            }),
+        ).rejects.toThrow('Fill in Name on the account.');
+
+        const { createMyPayoutMethod: first } = await adminClient.query(CREATE_MY_PAYOUT_METHOD, {
+            input: {
+                typeId: upi.id,
+                details: [
+                    { key: 'upiId', value: 'alpha@okhdfc' },
+                    { key: 'accountHolderName', value: 'Alpha Nutrition' },
+                ],
+            },
+        });
+        expect(first).toMatchObject({ name: 'UPI', isDefault: true, summary: 'UPI · alpha@okhdfc' });
+
+        const { createMyPayoutMethod: bank } = await adminClient.query(CREATE_MY_PAYOUT_METHOD, {
+            input: {
+                typeId: neft.id,
+                label: 'HDFC current account',
+                isDefault: true,
+                details: [
+                    { key: 'accountHolderName', value: 'Alpha Nutrition' },
+                    { key: 'accountNumber', value: '50200012345678' },
+                    { key: 'ifsc', value: 'HDFC0001234' },
+                ],
+            },
+        });
+        expect(bank.summary).toBe('NEFT · ••••5678');
+        const { myPayments } = await adminClient.query(MY_PAYMENTS);
+        expect(myPayments.payoutMethods.map((m: any) => [m.name, m.isDefault])).toEqual([
+            ['NEFT', true],
+            ['UPI', false],
+        ]);
+
+        // Staff pages stay closed to sellers.
+        await expect(adminClient.query(SETTLEMENT_OVERVIEW)).rejects.toThrow('not currently authorized');
+        await asSuperAdmin(adminClient);
+    });
+
+    it('shows staff what each seller earned, the commission, and what is still owed', async () => {
+        const { settlementOverview } = await adminClient.query(SETTLEMENT_OVERVIEW);
+        const alpha = settlementOverview.sellers.find((s: any) => s.sellerId === sellerAId);
+        // The split order (118000 + 4000 shipping) and the storefront order (59000 + 4000 shipping).
+        expect(alpha).toMatchObject({
+            orderCount: 2,
+            grossSales: 185000,
+            commission: 17700,
+            earned: 185000 - 17700,
+            paid: 0,
+            pending: 185000 - 17700,
+            pendingOrderCount: 2,
+            commissionPercent: 10,
+            defaultPayoutMethod: 'NEFT · ••••5678',
+        });
+        const beta = settlementOverview.sellers.find((s: any) => s.sellerId === sellerBId);
+        expect(beta).toMatchObject({ orderCount: 1, commission: 5310, commissionPercent: 15, defaultPayoutMethod: null });
+        expect(settlementOverview.sellers.map((s: any) => s.sellerName)).not.toContain('Vitamin 2001');
+        expect(settlementOverview.pending).toBe(alpha.pending + beta.pending);
+        expect(settlementOverview.commission).toBe(17700 + 5310);
+    });
+
+    it('records a payout to the chosen account and settles the oldest orders first', async () => {
+        const { sellerSettlement } = await adminClient.query(SELLER_SETTLEMENT, { sellerId: sellerAId });
+        const bank = sellerSettlement.payoutMethods.find((m: any) => m.name === 'NEFT');
+        const [oldest, newest] = sellerSettlement.recentOrders.slice().reverse();
+
+        await expect(
+            adminClient.query(RECORD_PAYOUT, {
+                input: { sellerId: sellerAId, amount: 185000, payoutMethodId: bank.id, transactionId: 'X' },
+            }),
+        ).rejects.toThrow('more than the');
+
+        const { recordSellerPayout } = await adminClient.query(RECORD_PAYOUT, {
+            input: {
+                sellerId: sellerAId,
+                amount: oldest.sellerPayoutAmount,
+                payoutMethodId: bank.id,
+                transactionId: 'UTR123456',
+                transactionDetails: 'Paid from the ICICI current account',
+            },
+        });
+        expect(recordSellerPayout).toMatchObject({
+            methodName: 'NEFT',
+            transactionId: 'UTR123456',
+            recordedBy: 'Super Admin',
+            voided: false,
+        });
+        expect(recordSellerPayout.methodDetails).toContainEqual({
+            key: 'accountNumber',
+            label: 'Account number',
+            value: '50200012345678',
+        });
+
+        const { sellerSettlement: after } = await adminClient.query(SELLER_SETTLEMENT, { sellerId: sellerAId });
+        expect(after.summary).toMatchObject({ paid: oldest.sellerPayoutAmount, pending: newest.sellerPayoutAmount });
+        const statuses = Object.fromEntries(after.recentOrders.map((o: any) => [o.code, o.payoutStatus]));
+        expect(statuses).toEqual({ [oldest.code]: 'paid', [newest.code]: 'pending' });
+        const { order } = await adminClient.query(GET_ORDER_PAYOUT_STATUS, { id: oldest.id });
+        expect(order.customFields.sellerPayoutStatus).toBe('paid');
+    });
+
+    it("shows the seller their payouts, where the money went and the transaction ID", async () => {
+        await asSeller(adminClient, sellerA);
+        const { myPayments } = await adminClient.query(MY_PAYMENTS);
+        expect(myPayments.summary.pending).toBe(myPayments.summary.earned - myPayments.summary.paid);
+        expect(myPayments.payouts).toHaveLength(1);
+        expect(myPayments.payouts[0]).toMatchObject({
+            methodName: 'NEFT',
+            transactionId: 'UTR123456',
+            transactionDetails: 'Paid from the ICICI current account',
+        });
+        await asSuperAdmin(adminClient);
+    });
+
+    it('puts a voided payout back into what the seller is owed', async () => {
+        const { sellerSettlement } = await adminClient.query(SELLER_SETTLEMENT, { sellerId: sellerAId });
+        await adminClient.query(VOID_PAYOUT, { id: sellerSettlement.payouts[0].id, reason: 'Entered twice' });
+        const { sellerSettlement: after } = await adminClient.query(SELLER_SETTLEMENT, { sellerId: sellerAId });
+        expect(after.summary).toMatchObject({ paid: 0, pending: after.summary.earned, pendingOrderCount: 2 });
+        expect(after.payouts[0]).toMatchObject({ voided: true, voidReason: 'Entered twice' });
+    });
+
+    it('lets staff record a payout to a seller with no payout method, saying how they paid', async () => {
+        await expect(
+            adminClient.query(RECORD_PAYOUT, { input: { sellerId: sellerBId, amount: 1000 } }),
+        ).rejects.toThrow('say how it was paid');
+        const { recordSellerPayout } = await adminClient.query(RECORD_PAYOUT, {
+            input: { sellerId: sellerBId, amount: 1000, manualMethodName: 'Cheque', transactionId: 'CHQ-0042' },
+        });
+        expect(recordSellerPayout).toMatchObject({ methodName: 'Cheque', methodDetails: [] });
+        const { updateSellerPayout } = await adminClient.query(UPDATE_PAYOUT, {
+            input: { id: recordSellerPayout.id, amount: 2000, transactionDetails: 'Handed over in person' },
+        });
+        expect(updateSellerPayout).toMatchObject({ amount: 2000, transactionDetails: 'Handed over in person' });
+    });
+
+    it('lets staff add a payout method with its own required details', async () => {
+        const { createPayoutMethodType } = await adminClient.query(CREATE_PAYOUT_METHOD_TYPE, {
+            input: {
+                name: 'PayPal',
+                fields: [
+                    { label: 'PayPal email', required: true },
+                    { label: 'Notes', required: false },
+                ],
+            },
+        });
+        expect(createPayoutMethodType).toMatchObject({
+            code: 'paypal',
+            enabled: true,
+            fields: [
+                { key: 'paypalEmail', label: 'PayPal email', required: true },
+                { key: 'notes', label: 'Notes', required: false },
+            ],
+        });
+        await asSeller(adminClient, sellerB);
+        const { payoutMethodTypes } = await adminClient.query(PAYOUT_METHOD_TYPES);
+        expect(payoutMethodTypes.map((t: any) => t.name)).toContain('PayPal');
+        await asSuperAdmin(adminClient);
+
+        // Sellers can no longer pick a method staff turn off.
+        await adminClient.query(UPDATE_PAYOUT_METHOD_TYPE, {
+            id: createPayoutMethodType.id,
+            input: { name: 'PayPal', enabled: false, fields: createPayoutMethodType.fields },
+        });
+        await asSeller(adminClient, sellerB);
+        const { payoutMethodTypes: after } = await adminClient.query(PAYOUT_METHOD_TYPES);
+        expect(after.map((t: any) => t.name)).not.toContain('PayPal');
+        await asSuperAdmin(adminClient);
+    });
+
+    it('asks staff to open a seller shop to see its Payments page', async () => {
+        await expect(adminClient.query(MY_PAYMENTS)).rejects.toThrow('Switch to the shop');
+    });
+
     it('removes the login of a rejected seller', async () => {
         const { applyAsSeller } = await shopClient.query(APPLY_AS_SELLER, {
             input: {
@@ -908,6 +1091,173 @@ const ADD_PAYMENT = gql`
             ... on ErrorResult {
                 errorCode
                 message
+            }
+        }
+    }
+`;
+
+const PAYOUT_METHOD_FIELDS = `
+    id
+    name
+    label
+    isDefault
+    summary
+    details {
+        key
+        label
+        value
+    }
+`;
+
+const PAYOUT_FIELDS = `
+    id
+    amount
+    paidAt
+    methodName
+    methodDetails {
+        key
+        label
+        value
+    }
+    transactionId
+    transactionDetails
+    recordedBy
+    voided
+    voidReason
+`;
+
+const SETTLEMENT_FIELDS = `
+    summary {
+        sellerId
+        earned
+        paid
+        pending
+        pendingOrderCount
+    }
+    payouts {
+        ${PAYOUT_FIELDS}
+    }
+    payoutMethods {
+        ${PAYOUT_METHOD_FIELDS}
+    }
+    recentOrders {
+        id
+        code
+        sellerPayoutAmount
+        payoutStatus
+    }
+`;
+
+const PAYOUT_METHOD_TYPES = gql`
+    query {
+        payoutMethodTypes {
+            id
+            code
+            name
+        }
+    }
+`;
+
+const CREATE_MY_PAYOUT_METHOD = gql`
+    mutation ($input: SellerPayoutMethodInput!) {
+        createMyPayoutMethod(input: $input) {
+            ${PAYOUT_METHOD_FIELDS}
+        }
+    }
+`;
+
+const MY_PAYMENTS = gql`
+    query {
+        myPayments {
+            ${SETTLEMENT_FIELDS}
+        }
+    }
+`;
+
+const SETTLEMENT_OVERVIEW = gql`
+    query {
+        settlementOverview {
+            pending
+            commission
+            sellers {
+                sellerId
+                sellerName
+                commissionPercent
+                orderCount
+                grossSales
+                commission
+                earned
+                paid
+                pending
+                pendingOrderCount
+                defaultPayoutMethod
+            }
+        }
+    }
+`;
+
+const SELLER_SETTLEMENT = gql`
+    query ($sellerId: ID!) {
+        sellerSettlement(sellerId: $sellerId) {
+            ${SETTLEMENT_FIELDS}
+        }
+    }
+`;
+
+const RECORD_PAYOUT = gql`
+    mutation ($input: RecordSellerPayoutInput!) {
+        recordSellerPayout(input: $input) {
+            ${PAYOUT_FIELDS}
+        }
+    }
+`;
+
+const UPDATE_PAYOUT = gql`
+    mutation ($input: UpdateSellerPayoutInput!) {
+        updateSellerPayout(input: $input) {
+            ${PAYOUT_FIELDS}
+        }
+    }
+`;
+
+const VOID_PAYOUT = gql`
+    mutation ($id: ID!, $reason: String!) {
+        voidSellerPayout(id: $id, reason: $reason) {
+            id
+        }
+    }
+`;
+
+const CREATE_PAYOUT_METHOD_TYPE = gql`
+    mutation ($input: PayoutMethodTypeInput!) {
+        createPayoutMethodType(input: $input) {
+            id
+            code
+            enabled
+            fields {
+                key
+                label
+                required
+            }
+        }
+    }
+`;
+
+const UPDATE_PAYOUT_METHOD_TYPE = gql`
+    mutation ($id: ID!, $input: PayoutMethodTypeInput!) {
+        updatePayoutMethodType(id: $id, input: $input) {
+            id
+            enabled
+        }
+    }
+`;
+
+const GET_ORDER_PAYOUT_STATUS = gql`
+    query ($id: ID!) {
+        order(id: $id) {
+            id
+            customFields {
+                sellerPayoutStatus
             }
         }
     }

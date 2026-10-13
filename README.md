@@ -1,6 +1,6 @@
 # Vitamin 2001 shop server
 
-Vendure 3.7.3 backend for a small Indian store. It serves the Admin API, the Shop API, product images, and the admin dashboard from one Node process. There is no storefront in this repository.
+Vendure 3.7.3 backend for VITAMIN SHOP, a small Indian store. It serves the Admin API, the Shop API, product images, and the admin dashboard from one Node process. There is no storefront in this repository.
 
 Default channel settings on first boot are English (`en`) and Indian Rupees (`INR`), with tax-inclusive prices. Change those in the dashboard later; the server will not overwrite them.
 
@@ -106,11 +106,27 @@ Customers pay the store. Each seller order records:
 - **Commission %**: the seller's own **Commission %** (Settings → Sellers), or `MARKETPLACE_COMMISSION_PERCENT` when that is blank.
 - **Commission**: that percentage of the order's items, including GST and after discounts, without shipping.
 - **Owed to seller**: the order total minus the commission.
-- **Seller payout**: Pending until you pay the seller and set it to Paid. Only staff with the Update Settings permission see this field, so sellers cannot mark themselves paid.
+- **Seller payout**: Pending until the payments recorded under Settlements cover the order, then Paid. Payments settle a seller's oldest orders first. Only staff with the Update Settings permission see this field, and nobody edits it by hand.
+
+### Settlements and payouts
+
+Pay sellers outside the shop (UPI, bank transfer), then record each payment in the dashboard:
+
+- **Settlements → Seller settlements** lists every seller with their sales, commission, what they earned, what you paid and what is still pending, plus totals for the store. Open a seller for their payments, monthly sales, orders and payout methods, and **Record payment**: choose the amount (all pending, or only delivered orders), the seller's payout method (its account details are shown so you can pay to them), the date, the transaction ID and any details. A payment entered by mistake can be edited, or voided with a reason; it stays on record.
+- **Settlements → Payout methods** lists the methods sellers can choose. UPI, NEFT, IMPS, Other and Custom come built in. Add your own with the details a seller must fill in, mark each detail required or optional, or turn a method off.
+- Sellers see **Payments** in their own dashboard: what they earned and are owed, every payment with the account it went to and its transaction ID, and their payout methods, which they add and edit themselves.
+
+Pending is what a seller earned on paid, uncancelled orders minus the payments recorded. Refunds don't lower it; edit or void a payment if a refund changes what you owe. The house shop is the store's own, so it is not listed.
+
+Staff need the **ManageSellerPayouts** permission (the superadmin has it). Seller roles get **ManageOwnPayouts**; roles created before this release get it on the next start, and a seller who is signed in sees Payments after signing in again. Orders already marked Paid before this release become one "Recorded before settlements" payment per seller, so their pending amount stays right.
 
 ### Seller storefronts
 
 A storefront that sends a seller's channel token (the `vendure-token` header; the token is on the channel under Settings → Channels, and in `marketplaceSellers`) shows only that seller's products. The BE sends it for a seller's own storefront. Its orders are not split, and the commission is recorded the same way.
+
+### Dashboard branding
+
+The dashboard is branded VITAMIN SHOP: the logo and welcome text on the sign-in page, the logo in the top bar and the tab title come from `src/plugins/branding/`; the favicon (`static/dashboard/`) and the blue theme are set in `vite.config.mts`. The small "Vendure" version badge under the sign-in form and in the user menu stays: Vendure's dashboard keeps it on purpose as its attribution.
 
 ## Storefront backend
 

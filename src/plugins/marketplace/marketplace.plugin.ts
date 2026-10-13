@@ -6,7 +6,14 @@ import {
     VendurePlugin,
 } from '@vendure/core';
 
+import { adminApiExtensions } from './api/admin-api-extensions';
 import { MarketplaceSellerResolver } from './api/marketplace-seller.resolver';
+import {
+    SellerPaymentsResolver,
+    SellerPayoutEntityResolver,
+    SellerPayoutMethodEntityResolver,
+    SettlementAdminResolver,
+} from './api/payouts.resolver';
 import { SellerApplicationResolver } from './api/seller-application.resolver';
 import { shopApiExtensions } from './api/shop-api-extensions';
 import { marketplaceOrderProcess } from './config/marketplace-order-process';
@@ -16,13 +23,18 @@ import { SellerRemovalSubscriber } from './config/seller-removal-subscriber';
 import { sellerShippingEligibilityChecker } from './config/seller-shipping-checker';
 import { SellerShippingLineAssignmentStrategy } from './config/seller-shipping-line-strategy';
 import { SellerStockAllocationStrategy } from './config/seller-stock-allocation-strategy';
-import { MARKETPLACE_PLUGIN_OPTIONS } from './constants';
+import { manageOwnPayoutsPermission, manageSellerPayoutsPermission, MARKETPLACE_PLUGIN_OPTIONS } from './constants';
 import { orderCustomFields, sellerCustomFields } from './custom-fields';
+import { PayoutMethodType } from './entities/payout-method-type.entity';
+import { SellerPayout } from './entities/seller-payout.entity';
+import { SellerPayoutMethod } from './entities/seller-payout-method.entity';
 import { CommissionService } from './service/commission.service';
 import { MarketplaceSellerService } from './service/marketplace-seller.service';
 import { MarketplaceSetupService } from './service/marketplace-setup.service';
+import { PayoutMethodService } from './service/payout-method.service';
 import { SellerApplicationService } from './service/seller-application.service';
 import { SellerProvisioningService } from './service/seller-provisioning.service';
+import { SettlementService } from './service/settlement.service';
 import { SuperadminContextService } from './service/superadmin-context.service';
 import { MarketplacePluginOptions } from './types';
 
@@ -42,8 +54,22 @@ import { MarketplacePluginOptions } from './types';
         SellerApplicationService,
         MarketplaceSetupService,
         MarketplaceSellerService,
+        PayoutMethodService,
+        SettlementService,
         { provide: MARKETPLACE_PLUGIN_OPTIONS, useFactory: () => MarketplacePlugin.options },
     ],
+    entities: [PayoutMethodType, SellerPayoutMethod, SellerPayout],
+    adminApiExtensions: {
+        schema: adminApiExtensions,
+        resolvers: [
+            SettlementAdminResolver,
+            SellerPaymentsResolver,
+            SellerPayoutMethodEntityResolver,
+            SellerPayoutEntityResolver,
+        ],
+    },
+    // Settlements and payout pages for staff, and the Payments page for sellers.
+    dashboard: './dashboard/index.tsx',
     shopApiExtensions: {
         schema: shopApiExtensions,
         resolvers: [SellerApplicationResolver, MarketplaceSellerResolver],
@@ -51,6 +77,7 @@ import { MarketplacePluginOptions } from './types';
     configuration: config => {
         config.customFields.Seller.push(...sellerCustomFields);
         config.customFields.Order.push(...orderCustomFields);
+        config.authOptions.customPermissions.push(manageSellerPayoutsPermission, manageOwnPayoutsPermission);
 
         // Lets a seller be deleted while their shop Channel still exists. See SellerRemovalSubscriber.
         const { subscribers = [] } = config.dbConnectionOptions;
