@@ -11,25 +11,36 @@ import {
     PaymentMethod,
     PaymentMethodEvent,
     PaymentMethodService,
+    Permission,
     ProcessContext,
     ProductVariant,
     RequestContext,
+    Role,
     Seller,
     SellerEvent,
     SellerService,
     ShippingMethod,
     TransactionalConnection,
 } from '@vendure/core';
-import { IsNull } from 'typeorm';
+import { IsNull, Like } from 'typeorm';
 
 import { sellerOrderOnlyChecker, sellerPayoutHandler } from '../config/seller-payout-handler';
 import { takeRemovedSeller } from '../config/seller-removal-subscriber';
 import { sellerShippingEligibilityChecker } from '../config/seller-shipping-checker';
-import { loggerCtx, MARKETPLACE_PLUGIN_OPTIONS, SELLER_PAYOUT_METHOD_CODE, SellerStatus } from '../constants';
+import {
+    loggerCtx,
+    manageOwnPayoutsPermission,
+    MARKETPLACE_PLUGIN_OPTIONS,
+    SELLER_PAYOUT_METHOD_CODE,
+    SELLER_ROLE_SUFFIX,
+    SellerStatus,
+} from '../constants';
 import { SellerShopSyncedEvent } from '../events';
 import { MarketplacePluginOptions } from '../types';
 
+import { PayoutMethodService } from './payout-method.service';
 import { SellerProvisioningService } from './seller-provisioning.service';
+import { SettlementService } from './settlement.service';
 import { SuperadminContextService } from './superadmin-context.service';
 
 /**
@@ -47,6 +58,8 @@ export class MarketplaceSetupService implements OnApplicationBootstrap {
         private sellerService: SellerService,
         private sellerProvisioningService: SellerProvisioningService,
         private superadminContextService: SuperadminContextService,
+        private payoutMethodService: PayoutMethodService,
+        private settlementService: SettlementService,
         @Inject(MARKETPLACE_PLUGIN_OPTIONS) private options: MarketplacePluginOptions,
     ) {}
 
@@ -105,6 +118,23 @@ export class MarketplaceSetupService implements OnApplicationBootstrap {
         }
         await this.backfillSellerSlugs(ctx);
         await this.warnAboutProductsWithoutSeller(ctx);
+        await this.payoutMethodService.ensureDefaultTypes(ctx);
+        await this.grantPaymentsPageToSellers(ctx);
+        await this.settlementService.recordOpeningBalances(ctx);
+    }
+
+    /** Seller roles made before the Payments page existed get access to it. */
+    private async grantPaymentsPageToSellers(ctx: RequestContext) {
+        const permission = manageOwnPayoutsPermission.Permission as Permission;
+        const roles = await this.connection
+            .getRepository(ctx, Role)
+            .find({ where: { code: Like(`%${SELLER_ROLE_SUFFIX}`) } });
+        for (const role of roles) {
+            if (!role.permissions.includes(permission)) {
+                role.permissions = [...role.permissions, permission];
+                await this.connection.getRepository(ctx, Role).save(role);
+            }
+        }
     }
 
     private async ensurePayoutPaymentMethod(ctx: RequestContext) {

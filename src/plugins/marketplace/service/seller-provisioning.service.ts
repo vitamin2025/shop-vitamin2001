@@ -35,6 +35,7 @@ import { RemovedSeller } from '../config/seller-removal-subscriber';
 import { sellerShippingEligibilityChecker } from '../config/seller-shipping-checker';
 import {
     loggerCtx,
+    manageOwnPayoutsPermission,
     RESERVED_SELLER_SLUGS,
     SELLER_PAYOUT_METHOD_CODE,
     SELLER_ROLE_SUFFIX,
@@ -73,6 +74,7 @@ export const SELLER_PERMISSIONS: Permission[] = [
     Permission.ReadStockLocation,
     Permission.UpdateStockLocation,
     Permission.DeleteStockLocation,
+    manageOwnPayoutsPermission.Permission as Permission,
 ];
 
 /**

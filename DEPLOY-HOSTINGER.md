@@ -147,6 +147,8 @@ Review `src/migrations/`, commit it, and deploy with `RUN_MIGRATIONS=true` for t
 
 The storefront bridge release adds `src/migrations/1791632305153-storefront-bridge.ts` (the seller slug, description, logo, banner and business address). Deploy it once with `RUN_MIGRATIONS=true`, then set it back to `false`. On that boot, sellers that already have a shop get a slug from their channel code.
 
+The settlements release adds `src/migrations/1791874946106-seller-payouts.ts` (the payout method, seller payout method and payout tables). Deploy it once with `RUN_MIGRATIONS=true`, then set it back to `false`.
+
 MySQL and MariaDB cannot roll a failed DDL statement back inside a transaction. Export the database from phpMyAdmin before you deploy a new migration.
 
 `APPLY_STORE_DEFAULTS=false` is the right production value once the default channel is INR. The first boot of an empty database can leave it `true`: that boot sets the default channel to INR and English if it is still the stock USD channel Vendure creates. Later edits in the dashboard are left alone either way. With the flag `false`, the app skips that check.

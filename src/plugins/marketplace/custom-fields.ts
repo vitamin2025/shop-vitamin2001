@@ -128,10 +128,12 @@ export const orderCustomFields: CustomFieldConfig[] = [
         type: 'string',
         nullable: true,
         public: false,
-        // Sellers can update their own orders, so only marketplace staff may see or change this.
+        // Sellers can update their own orders, so only marketplace staff may see this.
         requiresPermission: [Permission.UpdateSettings],
+        // Set from the payouts recorded under Settlements, oldest orders first.
+        readonly: true,
         label: en('Seller payout'),
-        description: en('Set to Paid once you have paid the seller.'),
+        description: en('Paid once the payouts recorded under Settlements cover this order.'),
         options: [
             { value: PayoutStatus.Pending, label: en('Pending') },
             { value: PayoutStatus.Paid, label: en('Paid') },
